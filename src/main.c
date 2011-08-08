@@ -1,4 +1,4 @@
-/* Copyright (C) 2010 Robrecht Dewaele
+/* Copyright (C) 2010, 2011 Robrecht Dewaele
  *
  * This file is part of osm2prolog.
  *
@@ -16,247 +16,432 @@
  * along with osm2prolog.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <assert.h>
+#include <ctype.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include <libxml/parser.h>
-#include <libxml/tree.h>
+#include <libxml/xmlstring.h>
 
-#ifdef LIBXML_TREE_ENABLED
+/* TODO: check whether long long types are really 64bit at least when compiling */
 
-void osm2pl(xmlNode *);
+/*****************
+ * SAX PARSER
+ *****************/
 
-void prologPrintFact(const char *, char *, bool);
-char * getValues(xmlNodePtr, const char **, size_t);
-char * parseNamedKV(xmlNodePtr);
+static xmlSAXHandler osm2prolog = {
+	/*  internalSubsetSAXFunc internalSubset;*/
+	NULL,
+	/*  isStandaloneSAXFunc isStandalone;*/
+	NULL,
+	/*  hasInternalSubsetSAXFunc hasInternalSubset;*/
+	NULL,
+	/*  hasExternalSubsetSAXFunc hasExternalSubset;*/
+	NULL,
+	/*  resolveEntitySAXFunc resolveEntity;*/
+	NULL,
+	/*  getEntitySAXFunc getEntity;*/
+	NULL,
+	/*  entityDeclSAXFunc entityDecl;*/
+	NULL,
+	/*  notationDeclSAXFunc notationDecl;*/
+	NULL,
+	/*  attributeDeclSAXFunc attributeDecl;*/
+	NULL,
+	/*  elementDeclSAXFunc elementDecl;*/
+	NULL,
+	/*  unparsedEntityDeclSAXFunc unparsedEntityDecl;*/
+	NULL,
+	/*  setDocumentLocatorSAXFunc setDocumentLocator;*/
+	NULL,
+	/*  startDocumentSAXFunc startDocument;*/
+	startDocument,
+	/*  endDocumentSAXFunc endDocument;*/
+	endDocument,
+	/*  startElementSAXFunc startElement;*/
+	startElement,
+	/*  endElementSAXFunc endElement;*/
+	endElement,
+	/*  referenceSAXFunc reference;*/
+	NULL,
+	/*  charactersSAXFunc characters;*/
+	NULL,
+	/*  ignorableWhitespaceSAXFunc ignorableWhitespace;*/
+	NULL,
+	/*  processingInstructionSAXFunc processingInstruction;*/
+	NULL,
+	/*  commentSAXFunc comment;*/
+	NULL,
+	/*  warningSAXFunc warning;*/
+	NULL,
+	/*  errorSAXFunc error;*/
+	NULL,
+	/*  fatalErrorSAXFunc fatalError;*/
+	NULL
+};
 
-void parseNode(xmlNodePtr);
-void parseNodeTag(const char *, xmlNodePtr);
-void parseWay(xmlNodePtr);
-void parseWayTag(const char *, xmlNodePtr);
+typedef enum osmElement {
+	_OSM_ELEMENT_UNSET_ = 0,
+	OSM, NODE, WAY, TAG, ND, RELATION, MEMBER, ID, LAT, LON, REF, K, V, VERSION,
+	CREATEDBY, NOTE,
+	_OSM_ELEMENT_SIZE_
+	} osmElement;
+static xmlChar ** strConstants;
 
-char * getNd(xmlNodePtr);
+typedef struct parseState {
+	osmElement parent;	
+	long long parentid;
 
-/* 
- * convert an OpenStreetMap XML file to a prolog DB 
- */
-void osm2pl(xmlNodePtr osm_root) {
-	xmlNode * osm_current = osm_root->xmlChildrenNode;
+	size_t numways;
+	const size_t maxways;
+	long long * waynodeids;
+} parseState;
 
-	while(osm_current) {
-		if (!xmlStrcmp(osm_current->name, (const xmlChar *)"node"))
-			parseNode(osm_current);
+/************************/
+/* forward declarations */
+/************************/
+size_t findAttributes(size_t numkeys, osmElement keys[], const xmlChar ** attrs, const xmlChar ** values);
 
-		if (!xmlStrcmp(osm_current->name, (const xmlChar *)"way"))
-			parseWay(osm_current);
+void parseOSM(const xmlChar ** attrs);
+void parseNode(const xmlChar * name, parseState * state, const xmlChar ** attrs);
+void parseWay(const xmlChar * name, parseState * state, const xmlChar ** attrs);
+void parseND(const xmlChar * name, parseState * state, const xmlChar ** attrs);
+void parseTag(const xmlChar * name, parseState * state, const xmlChar ** attrs);
 
-		osm_current = osm_current->next;
-	}
+xmlChar * prolog_filter_str(const xmlChar * str);
+bool osmIgnoreKey(const xmlChar * keyname);
+
+
+
+/*************/
+/* callbacks */
+/*************/
+void startDocument(void * user_data) {
+	/* "way is an ordered interconnection of at least 2 and at most 2,000[1] (API v0.6) nodes"
+	 * from: http://wiki.openstreetmap.org/wiki/Ways
+	 * TODO: dynamically manage memory for ways */
+	const size_t maxways = 2000;
+	parseState state = {_OSM_ELEMENT_UNSET_, 0, 0, maxways, xmlMalloc(maxways * sizeof(long long))};
+	memcpy(user_data, &state, sizeof(state));
+
+	fprintf(stderr, "Start Document\n");
+
+	strConstants = xmlMalloc(_OSM_ELEMENT_SIZE_ * sizeof(xmlChar *));
+
+	strConstants[OSM] = xmlCharStrdup("osm");
+	strConstants[NODE] = xmlCharStrdup("node");
+	strConstants[WAY] = xmlCharStrdup("way");
+	strConstants[TAG] = xmlCharStrdup("tag");
+	strConstants[ND] = xmlCharStrdup("nd");
+	strConstants[MEMBER] = xmlCharStrdup("member");
+	strConstants[RELATION] = xmlCharStrdup("relation");
+	strConstants[ID] = xmlCharStrdup("id");
+	strConstants[LAT] = xmlCharStrdup("lat");
+	strConstants[LON] = xmlCharStrdup("lon");
+	strConstants[REF] = xmlCharStrdup("ref");
+	strConstants[K] = xmlCharStrdup("k");
+	strConstants[V] = xmlCharStrdup("v");
+	strConstants[VERSION] = xmlCharStrdup("version");
+	strConstants[CREATEDBY] = xmlCharStrdup("created_by");
+	strConstants[NOTE] = xmlCharStrdup("note");
+
+	/* prevent swipl from complaining about the order of clauses */
+	printf(":-style_check(-discontiguous).\n");
 }
 
-
-void prologPrintFact(const char * name, char * data, bool freeData) {
-	printf("%s(%s).\n", name, data);
-	if (freeData)
-		free(data);
-}
-
-/* 
- * convert xml key/value pairs to a string of values, where the values are
- * separated by commas 
- */
-char * getValues(xmlNodePtr osm_node, const char * keys[], size_t len) {
+void endDocument(void * user_data) {
+	parseState * state = user_data;
 	size_t i;
-	double ignoredouble = 0;
-	char * nbrCheck = NULL;
-	char * pos = NULL;
-	char * read = NULL;
-	size_t buf_free = 512;
-	int written = 0;
-	char * buf = malloc(buf_free * sizeof(xmlChar));
-	char * buf_start = buf;
 
-	len /= sizeof(xmlChar *);
+	for (i = _OSM_ELEMENT_UNSET_ + 1; i < _OSM_ELEMENT_SIZE_; ++i)
+		xmlFree(strConstants[i]);
 
-	/* read the values and abort on incorrect OSM nodes */
-	for (i = 0; i < len; ++i) {
-		if (!(read = (char *)xmlGetProp(osm_node, (xmlChar *)keys[i])))
-			exit(1);
+	xmlFree(strConstants);
 
-		if (buf_free - 10 > strlen(read)) { /* TODO fix possible overflow in a decent way :) */
-			if ((ignoredouble = strtod(read, &nbrCheck)), *nbrCheck != '\0') {
-				while((pos = strchr(read, '\'')))
-					*pos = ' ';
-				written = sprintf(buf, "'%s', ", read);
-			}
-			else
-				written = sprintf(buf, "%s, ", read);
-			buf += written;
-			buf_free -= written;
+	xmlFree(state->waynodeids);
+
+	fprintf(stderr, "End Document\n");
+}
+
+void startElement(void * user_data, const xmlChar * name, const xmlChar ** attrs) {
+	parseState * state = user_data;
+
+	/* --- accepted --- */
+	/* osm (the xml root node) */
+	if (xmlStrEqual(name, strConstants[OSM])) {
+		parseOSM(attrs);
+		return;
+	}
+
+	/* node */
+	if (xmlStrEqual(name, strConstants[NODE])) {
+		parseNode(name, state, attrs);
+		return;
+	}
+	/* way */
+	if (xmlStrEqual(name, strConstants[WAY])) {
+		parseWay(name, state, attrs);
+		return;
+	}
+	/* nd */
+	if (xmlStrEqual(name, strConstants[ND])) {
+		parseND(name, state, attrs);
+		return;
+	}
+	/* tag */
+	if (xmlStrEqual(name, strConstants[TAG])) {
+		parseTag(name, state, attrs);
+		return;
+	}
+
+	/* --- ignored (deliberately and explicitely) --- */
+
+	/* relation */
+	if (xmlStrEqual(name, strConstants[RELATION]))
+		return;
+	/* member */
+	if (xmlStrEqual(name, strConstants[MEMBER]))
+		return;
+
+	/* --- unknown --- */
+
+	fprintf(stderr, "unknown element: %s\n", name);
+}
+
+void endElement(void * user_data, const xmlChar * name) {
+	parseState * state = user_data;
+	size_t i;
+	size_t waysmaxidx = state->numways - 1;
+
+	/* node */
+	if (xmlStrEqual(name, strConstants[NODE])) {
+		state->parent = _OSM_ELEMENT_UNSET_;
+		state->numways = 0;
+	}
+
+	/* way */
+	if (xmlStrEqual(name, strConstants[WAY])) {
+ 		if (state->numways > 0) {
+			printf("%s(%lli, [", name, state->parentid);
+			for (i = 0; i < waysmaxidx; ++i)
+				printf("%lli, ", (state->waynodeids)[i]);
+			printf("%lli]).\n", state->waynodeids[waysmaxidx]);
 		}
-		else
-			fprintf(stderr, "PROBLEM?\n");
-		xmlFree(read);
+		state->parent = _OSM_ELEMENT_UNSET_;
+		state->numways = 0;
+		return;
 	}
-	/* erase the last ", " from buffer */
-	*(buf - 2) = '\0';
-	return buf_start;
 }
 
-/* 
- * parse an _OpenStreetMap_ key/value style node
- */
-char * parseNamedKV(xmlNodePtr osm_node_tag) {
-	static const char * osm_node_tag_keys[] = {"k", "v"};
-	static const size_t numkeys = sizeof(osm_node_tag_keys);
 
-	return getValues(osm_node_tag, osm_node_tag_keys, numkeys);
-}
 
-/*
- * parse an OpenStreetMap root->node
- */
-void parseNode(xmlNodePtr osm_node) {
-	static const char * osm_node_keys[] = {"id", "lat", "lon"};
-	static const size_t numkeys = sizeof(osm_node_keys);
-	static const char * osm_node_key_ID[] = {"id"};
-	char * nodeID = getValues(osm_node, osm_node_key_ID, sizeof(osm_node_key_ID));
-	xmlNodePtr osm_node_current = NULL;
+/*********************/
+/* parsing functions */
+/*********************/
+size_t findAttributes(size_t numkeys, osmElement keys[], const xmlChar ** attrs, const xmlChar ** values) {
+	const xmlChar ** attrs_idx;
+	size_t i;
 
-	prologPrintFact("node", getValues(osm_node, osm_node_keys, numkeys), true);
+	size_t foundkeys = 0;
 
-	/* now process OSM node->children */
-	osm_node_current = osm_node->xmlChildrenNode;
-	while(osm_node_current) {
-		if (!xmlStrcmp(osm_node_current->name, (const xmlChar *)"tag"))
-			parseNodeTag(nodeID, osm_node_current);
-		osm_node_current = osm_node_current->next;
+	/* no attributes or no keys: return immediately */
+	if (!attrs || !attrs[0] || !attrs[1] || !numkeys)
+		return 0;
+
+	/* as the order of the keys is important, check for each of them in order */
+	for (i = 0; i < numkeys; ++i) {
+		attrs_idx = attrs;
+		do {
+			if (xmlStrEqual(strConstants[keys[i]], attrs_idx[0])) {
+				values[i] = attrs_idx[1];
+				++foundkeys;
+				break;
+			}
+		}	while (*(attrs_idx += 2));
 	}
-	xmlFree(nodeID);
+	return foundkeys;
 }
 
-void parseNodeTag(const char * nodeID, xmlNodePtr osm_node_tag) {
-	const char * formatStr = "%s, %s";
-	char * kv = parseNamedKV(osm_node_tag);
-	char * buf = malloc(strlen(formatStr) + strlen(nodeID) + strlen(kv) + 1);
+void parseOSM(const xmlChar ** attrs) {
+	osmElement keys[] = {VERSION};
+	const size_t numkeys = (sizeof(keys) / sizeof(osmElement));
+	const xmlChar ** values = xmlMalloc(numkeys * sizeof(xmlChar *));
 
-	sprintf(buf, formatStr, nodeID, kv);
-	xmlFree(kv);
-	prologPrintFact("node_tag", buf, true);
+	size_t foundkeys = findAttributes(numkeys, keys, attrs, values);
+
+	if (foundkeys == numkeys)
+		fprintf(stderr, "Openstreetmap XML, version %s\n", values[0]);
+
+	xmlFree(values);
 }
 
-/*
- * return the reference field from an OpenStreetMap
- * root->way->Nd
- */
-char * getNd(xmlNodePtr osm_way_nd) {
-	static const char * osm_way_nd_keys[] = {"ref"};
-	static const size_t numkeys = sizeof(osm_way_nd_keys);
-	return getValues(osm_way_nd, osm_way_nd_keys, numkeys);
-}
+void parseNode(const xmlChar * name, parseState * state, const xmlChar ** attrs) {
+	size_t i;
+	char * endptr = NULL;
+	long long id;
+	osmElement keys[] = {ID, LAT, LON};
+	const size_t numkeys = (sizeof(keys) / sizeof(osmElement));
+	const size_t keysmaxidx = numkeys - 1;
+	const xmlChar ** values = xmlMalloc(numkeys * sizeof(xmlChar *));
 
-/* 
- * parse an OpenStreetMap root->way
- */
-void parseWay(xmlNodePtr osm_way) {
-	static const char * osm_way_keys[] = {"id"};
-	static const size_t numkeys = sizeof(osm_way_keys);
+	size_t foundkeys = findAttributes(numkeys, keys, attrs, values);
 
-	char * read = NULL;
-	char * wayID = NULL;
-	size_t buf_free = 16 * 1024; /* can be big ish */
-	int written = 0;
-	char * buf = malloc(buf_free * sizeof(xmlChar));
-	char * buf_start = buf;
-	xmlNode * osm_way_current;
-
-	wayID = read = getValues(osm_way, osm_way_keys, numkeys);
-	if (buf_free > strlen(read)) {
-		written = sprintf(buf, "%s, [", read);
-		buf += written;
-		buf_free -= written;
+	/* print the tuple if it's been found */
+	if (foundkeys == numkeys) {
+		id = strtoll((char *)values[0], &endptr, 10);
+		if ('\0' == *endptr) {
+			state->parent = NODE;
+			state->parentid = id;
+		}
+		printf("%s(", name);
+		for (i = 0; i < keysmaxidx; ++i)
+			printf("%s, ", values[i]);
+		printf("%s).\n", values[keysmaxidx]);
 	}
 	else
-		fprintf(stderr, "PROBLEM?\n");
+		fprintf(stderr, "Warning: Not all required keys for record <%s> found. Ignoring %s record.\n", name, name);
 
-	/* now process OSM way->children */
-	osm_way_current = osm_way->xmlChildrenNode;
-	while(osm_way_current) {
-		if (!xmlStrcmp(osm_way_current->name, (const xmlChar *)"tag"))
-			parseWayTag(wayID, osm_way_current);
-		else if (!xmlStrcmp(osm_way_current->name, (const xmlChar *)"nd")) {
-			read = getNd(osm_way_current);
-			if (buf_free > strlen(read)) {
-				written = sprintf(buf, "%s, ", read);
-				buf += written;
-				buf_free -= written;
-				xmlFree(read);
+	xmlFree(values);
+}
+
+void parseWay(const xmlChar * name __attribute__((unused)), parseState * state, const xmlChar ** attrs) {
+	osmElement keys[] = {ID};
+	char * endptr = NULL;
+	long long id;
+	const size_t numkeys = (sizeof(keys) / sizeof(osmElement));
+	const xmlChar ** values = xmlMalloc(numkeys * sizeof(xmlChar *));
+
+	size_t foundkeys = findAttributes(numkeys, keys, attrs, values);
+
+	if (foundkeys == numkeys) {
+		id = strtoll((char *)values[0], &endptr, 10);
+		if ('\0' == *endptr) {
+			state->parent = WAY;
+			state->parentid = id;
+		}
+		else
+			fprintf(stderr, "Warning: Failed to convert way ID from string to number. Ignoring way record.\n");
+	}
+	else
+		fprintf(stderr, "Warning: Failed to find the ID for the current way record. Ignoring way record.\n");
+
+	xmlFree(values);
+}
+
+void parseND(const xmlChar * name __attribute__((unused)), parseState * state, const xmlChar ** attrs) {
+	osmElement keys[] = {REF};
+	char * endptr = NULL;
+	long long id;
+	const size_t numkeys = (sizeof(keys) / sizeof(osmElement));
+	const xmlChar ** values = xmlMalloc(numkeys * sizeof(xmlChar *));
+
+	size_t foundkeys = findAttributes(numkeys, keys, attrs, values);
+
+	if (foundkeys == numkeys) {
+		if (state->parent == WAY) {
+			id = strtoll((char *)values[0], &endptr, 10);
+			if (endptr && '\0' == *endptr) {
+				state->waynodeids[state->numways++] = id;
 			}
 			else
-				fprintf(stderr, "PROBLEM2?\n");
+				fprintf(stderr, "Warning: Failed to convert ND node ID from string to number. Ignoring ND node.\n");
 		}
-		osm_way_current = osm_way_current->next;
+		else
+			fprintf(stderr, "Warning: Ignoring ND element outside WAY element.\n");
 	}
-	sprintf((buf - 2), "]");
-	prologPrintFact("way", buf_start, true);
-	xmlFree(wayID);
+	else
+		fprintf(stderr, "Warning: Failed to find the ID for the current ND record. Ignoring ND node.\n");
+
+	xmlFree(values);
 }
 
-/*
- * parse an OpenStreetMap root->way->tag
- */
-void parseWayTag(const char * wayID, xmlNodePtr osm_way_tag) {
-	const char * formatStr = "%s, %s";
-	char * kv = parseNamedKV(osm_way_tag);
-	char * buf = malloc(strlen(formatStr) + strlen(wayID) + strlen(kv) + 1);
+/* TODO write numbers as numbers and strings as strings */
+/* TODO don't hardcode the tags being ignored */
+/* TODO check for other nasty things in values like newlines */
+void parseTag(const xmlChar * name __attribute__((unused)), parseState * state, const xmlChar ** attrs) {
+	xmlChar * prefix = NULL;
+	xmlChar * key = NULL;
+	xmlChar * value = NULL;
+	osmElement keys[] = {K, V};
+	const size_t numkeys = (sizeof(keys) / sizeof(osmElement));
+	const xmlChar ** values = xmlMalloc(numkeys * sizeof(xmlChar *));
 
-	sprintf(buf, formatStr, wayID, kv);
-	xmlFree(kv);
-	prologPrintFact("way_tag", buf, true);
+	size_t foundkeys = findAttributes(numkeys, keys, attrs, values);
+
+	/* known tag prefixes */
+	if (NODE == state->parent)
+		prefix = strConstants[NODE];
+	if (WAY == state->parent)
+		prefix = strConstants[WAY];
+
+	/* print the tuple if it's been found && we know how to print it && we actually want to print it */
+	/* TODO: do this printing like the abstract way in parseNode (i.e. extract that as a function)*/
+	if (foundkeys != numkeys && prefix) {
+		fprintf(stderr,	"Warning: Not all required keys for record <%s> found. Ignoring %s record in %s record.\n",
+				name, name, prefix);
+	}
+	else {
+		if (!osmIgnoreKey(values[0])) {
+			key = prolog_filter_str(values[0]);
+			value = prolog_filter_str(values[1]);
+			printf("%s_%s(%lld, '%s', '%s').\n",
+				prefix,
+				name,
+				state->parentid,
+				key ? key : values[0],
+				value ? value : values[1]
+			);
+			/* free(NULL) || free(<valid pointer>) */
+			xmlFree(key);
+			xmlFree(value);
+		}
+	}
+	xmlFree(values);
 }
 
-/* 
- * main
- */
-int main(int argc, char **argv) {
-	xmlDoc * doc = NULL;
-	xmlNodePtr root_element = NULL;
 
-	if (argc != 2) {
-		fprintf(stderr,"usage: %s <openstreetmapdump.xml>\n", argv[0]);
-		return(1);
-	}
+/* main */
+int main(int argc, char * argv[]) {
+	int error;
+	parseState * state = xmlMalloc(sizeof(parseState));
 
-	LIBXML_TEST_VERSION;
+	fprintf(stderr, "osm2prolog v0.2 - usage and license: see the 'README' and 'COPYING' files.\n");
 
-	/*parse the file and get the DOM */
-	doc = xmlReadFile(argv[1], NULL, 0);
+	assert(argc == 2);
 
-	if (doc == NULL) {
-		printf("error: could not parse file %s\n", argv[1]);
-		exit(1);
-	}
+	error = xmlSAXUserParseFile(&osm2prolog, state, argv[1]);
 
-	/* Get the root element node */
-	root_element = xmlDocGetRootElement(doc);
+	xmlFree(state);
 
-	/* Check for the right type of document */
-	if (xmlStrcmp(root_element->name, (const xmlChar *)"osm")) {
-		fprintf(stderr,"error: XML root is not an OpenStreetMap node.\n");
-		exit(1);
-	}
-
-	printf(":-style_check(-discontiguous).\n\n");
-	osm2pl(root_element);
-
-	xmlFreeDoc(doc);
-	xmlCleanupParser();
-
-	return 0;
+	if (error < 0)
+		return EXIT_FAILURE;
+	else
+		return EXIT_SUCCESS;
 }
-#else
-int main(void) {
-	fprintf(stderr, "Tree support not compiled in\n");
-	exit(1);
+
+/* util functions */
+
+/* currently changes all whitespace to space */
+xmlChar * prolog_filter_str(const xmlChar * str) {
+	xmlChar * retval = NULL;
+	xmlChar * dest = NULL;
+
+	/* this is expected to be a rare case, so we amortize performance by paying less for strings
+	 * that don't include newlines, and a bit more for strings who do */
+	if (!xmlStrchr(str, '\n')) {
+		retval = dest = xmlMalloc(xmlStrlen(str) + 1);
+		while('\0' != (*dest++ = (isspace(*str++) ? ' ' : *str))); /* sequence point after '?' */
+	}
+
+	return retval;
 }
-#endif
+
+bool osmIgnoreKey(const xmlChar * keyname) {
+	return
+		xmlStrcmp(keyname, strConstants[CREATEDBY])
+		|| xmlStrcmp(keyname, strConstants[NOTE])
+	;
+}
