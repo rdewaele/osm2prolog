@@ -62,4 +62,8 @@ clean:
 valgrind: $(EXECUTABLE)
 	valgrind --leak-check=full ./$(EXECUTABLE) $(OSMXML) > /dev/null
 
+# run osm2prolog through _extensive_ valgrind using the supplied osm xml sample
+valgrinder: $(EXECUTABLE)
+		valgrind -v --leak-check=full --show-reachable=yes --track-origins=yes ./$(EXECUTABLE) $(OSMXML) > /dev/null
+
 .PHONY: valgrind $(EXECUTABLE)

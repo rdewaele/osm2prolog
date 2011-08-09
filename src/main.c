@@ -33,6 +33,7 @@ int main(int argc, char * argv[]) {
 	assert(argc == 2);
 
 	error = xmlSAXUserParseFile(&osm2prolog, state, argv[1]);
+	xmlCleanupParser();
 
 	osm2prolog_freeParseState(state);
 
