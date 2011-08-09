@@ -27,6 +27,7 @@
 
 xmlChar ** strConstants;
 
+/* TODO check for other nasty things in values like newlines */
 xmlChar * prolog_filter_str(const xmlChar * str) {
 	xmlChar * retval = NULL;
 	xmlChar * dest = NULL;
@@ -42,11 +43,12 @@ xmlChar * prolog_filter_str(const xmlChar * str) {
 
 
 
+/* TODO don't hardcode the tags being ignored */
 bool osmIgnoreKey(const xmlChar * keyname) {
-	return
+	return keyname && (
 		xmlStrcmp(keyname, strConstants[CREATEDBY])
 		|| xmlStrcmp(keyname, strConstants[NOTE])
-		;
+		);
 }
 
 
@@ -89,7 +91,19 @@ parseState * osm2prolog_createParseState (void) {
 	 * TODO: dynamically manage memory for ways */
 	const size_t maxways = 2000;
 	parseState * state = xmlMalloc(sizeof(parseState));
-	parseState src_state = {_OSM_ELEMENT_UNSET_, 0, 0, maxways, xmlMalloc(maxways * sizeof(int_least64_t))};
+	parseState src_state = {
+		_OSM_ELEMENT_UNSET_,
+		0,
+		true,
+		NULL,
+		NULL,
+		0,
+		maxways,
+		xmlMalloc(maxways * sizeof(int_least64_t)),
+		NULL,
+		NULL,
+		NULL,
+	};
 	memcpy(state, &src_state, sizeof(src_state));
 	return state;
 }

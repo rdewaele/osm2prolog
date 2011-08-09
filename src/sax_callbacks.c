@@ -68,6 +68,9 @@ static void printNode(const xmlChar * name, parseState * state);
 static void printWay(const xmlChar * name, parseState * state);
 static void printTag(const xmlChar * name, parseState * state);
 
+static bool osm_strtoimax(const xmlChar * str, int_least64_t * num);
+static bool validDouble(const xmlChar * str);
+
 /*************/
 /* callbacks */
 /*************/
@@ -77,8 +80,14 @@ void startDocument(void * user_data) {
 	/* Technically, these values are probably already set, but that's because
 	 * these are general sane values. We don't wan't to _depend_ on that though. */
 	state->parent = _OSM_ELEMENT_UNSET_;
+	state->lat = NULL;
+	state->lon = NULL;
+	state->badnode = true;
 	state->parentid = 0;
 	state->numways = 0;
+	state->tagprefix = NULL;
+	state->tagkey = NULL;
+	state->tagvalue = NULL;
 
 	osm2prolog_init();
 
@@ -143,18 +152,36 @@ void endElement(void * user_data, const xmlChar * name) {
 	parseState * state = user_data;
 
 	/* node */
-	if (xmlStrEqual(name, strConstants[NODE])) {
+	if (xmlStrEqual(name, strConstants[NODE]) && !state->badnode) {
+		printNode(name, state);
 		state->parent = _OSM_ELEMENT_UNSET_;
-		state->numways = 0;
+		xmlFree(state->lon);
+		xmlFree(state->lat);
 	}
 
 	/* way */
 	if (xmlStrEqual(name, strConstants[WAY])) {
- 		if (state->numways > 0)
+ 		if (0 == state->numways)
+			fprintf(stderr, "Warning: way element doesn't contain nodes. Ignoring way.");
+		else
 			printWay(name, state);
+
 		state->parent = _OSM_ELEMENT_UNSET_;
 		state->numways = 0;
 		return;
+	}
+
+	/* nd - is only handled as a child of way*/
+
+	/* tag */	
+	if (xmlStrEqual(name, strConstants[TAG])) {
+		if (state->tagkey && !osmIgnoreKey(state->tagkey))
+			printTag(name, state);
+
+		xmlFree(state->tagkey);
+		state->tagkey = NULL;
+		xmlFree(state->tagvalue);
+		state->tagvalue = NULL;
 	}
 }
 
@@ -200,130 +227,100 @@ static void parseOSM(const xmlChar ** attrs) {
 	xmlFree(values);
 }
 
-static void parseNode(const xmlChar * name, parseState * state, const xmlChar ** attrs) {
-	size_t i;
-	char * endptr = NULL;
-	int_least64_t id;
+static void parseNode(const xmlChar * name __attribute__((unused)), parseState * state, const xmlChar ** attrs) {
 	osmElement keys[] = {ID, LAT, LON};
 	const size_t numkeys = (sizeof(keys) / sizeof(osmElement));
-	const size_t keysmaxidx = numkeys - 1;
 	const xmlChar ** values = xmlMalloc(numkeys * sizeof(xmlChar *));
 
 	size_t foundkeys = findAttributes(numkeys, keys, attrs, values);
 
-	/**/
-	/**/
+	state->badnode = true;
 
-	/* print the tuple if it's been found */
-	if (foundkeys == numkeys) {
-		id = strtoll((char *)values[0], &endptr, 10);
-		if ('\0' == *endptr) {
+	/* save the tuple if it's conform to what we expect */
+	if (foundkeys != numkeys)
+		fprintf(stderr, "Warning: Not all required keys for node record found. Ignoring node record.\n");
+	else {
+		if (!(
+				osm_strtoimax(values[0], &(state->parentid))
+				&& validDouble(values[1])
+				&& validDouble(values[2])
+				))
+			fprintf(stderr, "Warning: Failed to convert node ID, LAT or LON from string to number. Ignoring node record.\n");
+		else
 			state->parent = NODE;
-			state->parentid = id;
+			state->lat = xmlStrdup(values[1]);
+			state->lon = xmlStrdup(values[2]);
+			state->badnode = false;
 		}
-		printf("%s(", name);
-		for (i = 0; i < keysmaxidx; ++i)
-			printf("%s, ", values[i]);
-		printf("%s).\n", values[keysmaxidx]);
-	}
-	else
-		fprintf(stderr, "Warning: Not all required keys for record <%s> found. Ignoring %s record.\n", name, name);
 
 	xmlFree(values);
 }
 
 static void parseWay(const xmlChar * name __attribute__((unused)), parseState * state, const xmlChar ** attrs) {
 	osmElement keys[] = {ID};
-	char * endptr = NULL;
-	int_least64_t id;
 	const size_t numkeys = (sizeof(keys) / sizeof(osmElement));
 	const xmlChar ** values = xmlMalloc(numkeys * sizeof(xmlChar *));
 
 	size_t foundkeys = findAttributes(numkeys, keys, attrs, values);
 
-	if (foundkeys == numkeys) {
-		id = strtoll((char *)values[0], &endptr, 10);
-		if ('\0' == *endptr) {
-			state->parent = WAY;
-			state->parentid = id;
-		}
-		else
-			fprintf(stderr, "Warning: Failed to convert way ID from string to number. Ignoring way record.\n");
-	}
-	else
+	if (foundkeys != numkeys)
 		fprintf(stderr, "Warning: Failed to find the ID for the current way record. Ignoring way record.\n");
+	else {
+		if (!osm_strtoimax(values[0], &(state->parentid)))
+			fprintf(stderr, "Warning: Failed to convert way ID from string to number. Ignoring way record.\n");
+		else
+			state->parent = WAY;
+	}
 
 	xmlFree(values);
 }
 
 void parseND(const xmlChar * name __attribute__((unused)), parseState * state, const xmlChar ** attrs) {
 	osmElement keys[] = {REF};
-	char * endptr = NULL;
-	int_least64_t id;
 	const size_t numkeys = (sizeof(keys) / sizeof(osmElement));
 	const xmlChar ** values = xmlMalloc(numkeys * sizeof(xmlChar *));
 
 	size_t foundkeys = findAttributes(numkeys, keys, attrs, values);
 
-	if (foundkeys == numkeys) {
-		if (state->parent == WAY) {
-			id = strtoll((char *)values[0], &endptr, 10);
-			if (endptr && '\0' == *endptr) {
-				state->waynodeids[state->numways++] = id;
-			}
-			else
-				fprintf(stderr, "Warning: Failed to convert ND node ID from string to number. Ignoring ND node.\n");
-		}
-		else
+	if (foundkeys != numkeys)
+		fprintf(stderr, "Warning: Failed to find the REF (reference node) for the current ND record. Ignoring ND node.\n");
+	else {
+		if (state->parent != WAY)
 			fprintf(stderr, "Warning: Ignoring ND element outside WAY element.\n");
+		else {
+			if (!osm_strtoimax(values[0], &(state->waynodeids[state->numways++])))
+				fprintf(stderr, "Warning: Failed to convert ND node ID from string to number. Ignoring ND node.\n");
+			/* else: ND must not set parent so no action here */
+		}
 	}
-	else
-		fprintf(stderr, "Warning: Failed to find the ID for the current ND record. Ignoring ND node.\n");
 
 	xmlFree(values);
 }
 
-/* TODO write numbers as numbers and strings as strings */
-/* TODO don't hardcode the tags being ignored */
-/* TODO check for other nasty things in values like newlines */
 static void parseTag(const xmlChar * name __attribute__((unused)), parseState * state, const xmlChar ** attrs) {
-	xmlChar * prefix = NULL;
-	xmlChar * key = NULL;
-	xmlChar * value = NULL;
 	osmElement keys[] = {K, V};
 	const size_t numkeys = (sizeof(keys) / sizeof(osmElement));
 	const xmlChar ** values = xmlMalloc(numkeys * sizeof(xmlChar *));
 
 	size_t foundkeys = findAttributes(numkeys, keys, attrs, values);
 
+	state->tagprefix = NULL;
+	state->tagkey = NULL;
+	state->tagvalue = NULL;
+
 	/* known tag prefixes */
 	if (NODE == state->parent)
-		prefix = strConstants[NODE];
+		state->tagprefix = strConstants[NODE];
 	if (WAY == state->parent)
-		prefix = strConstants[WAY];
+		state->tagprefix = strConstants[WAY];
 
-	/* print the tuple if it's been found && we know how to print it && we actually want to print it */
-	/* TODO: do this printing like the abstract way in parseNode (i.e. extract that as a function)*/
-	if (foundkeys != numkeys && prefix) {
+	if (foundkeys != numkeys && state->tagprefix)
 		fprintf(stderr,	"Warning: Not all required keys for record <%s> found. Ignoring %s record in %s record.\n",
-				name, name, prefix);
-	}
-	else {
-		if (!osmIgnoreKey(values[0])) {
-			key = prolog_filter_str(values[0]);
-			value = prolog_filter_str(values[1]);
-			printf("%s_%s(%" PRIdLEAST64 ", '%s', '%s').\n",
-				prefix,
-				name,
-				state->parentid,
-				key ? key : values[0],
-				value ? value : values[1]
-			);
-			/* free(NULL) || free(<valid pointer>) */
-			xmlFree(key);
-			xmlFree(value);
-		}
-	}
+				name, name, state->tagprefix);
+	else
+		state->tagkey = xmlStrdup(values[0]);
+		state->tagvalue = xmlStrdup(values[1]);
+
 	xmlFree(values);
 }
 
@@ -337,10 +334,52 @@ static void printWay(const xmlChar * name, parseState * state) {
 	size_t i = 0;
 	size_t waysmaxidx = state->numways - 1;
 	printf("%s(%" PRIdLEAST64 ", [", name, state->parentid);
-	while(i++ < waysmaxidx)	printf("%" PRIdLEAST64 ", ", (state->waynodeids)[i]);
+	while(i < waysmaxidx) printf("%" PRIdLEAST64 ", ", (state->waynodeids)[i++]);
 	printf("%" PRIdLEAST64 "]).\n", state->waynodeids[waysmaxidx]);
 }
 
 static void printNode(const xmlChar * name, parseState * state) {
-	printf("%s(%" PRIdLEAST64 ", %" PRIdLEAST64 ", %" PRIdLEAST64 ").\n", name, state->parentid, state->lat, state->lon);
+	printf("%s(%" PRIdLEAST64 ", %s, %s).\n", name, state->parentid, state->lat, state->lon);
 }	
+
+static void printTag(const xmlChar * name, parseState * state) {
+	xmlChar * key = NULL;
+	xmlChar * value = NULL;
+
+	key = prolog_filter_str(state->tagkey);
+	value = prolog_filter_str(state->tagvalue);
+
+	printf("%s_%s(%" PRIdLEAST64 ", '%s', '%s').\n",
+		state->tagprefix,
+		name,
+		state->parentid,
+		key ? key : state->tagkey,
+		value ? value : state->tagvalue
+	);
+	/* free(NULL) || free(<valid pointer>) */
+	xmlFree(key);
+	xmlFree(value);
+}
+
+
+
+/********/
+/* UTIL */
+/********/
+
+static bool osm_strtoimax(const xmlChar * str, int_least64_t * num) {
+	char * endptr = NULL;
+	int_least64_t id = strtoimax((char *)str, &endptr, 10);
+	if ('\0' == *endptr) {
+		*num = id;
+		return true;
+	}
+	else
+		return false;
+}
+
+static bool validDouble(const xmlChar * str) {
+	char * endptr = NULL;
+	(void)strtod((char *)str, &endptr);
+	return '\0' == *endptr;
+}

@@ -30,9 +30,20 @@ struct parseState {
 	osmElement parent;	
 	int_least64_t parentid;
 
+	/* node details */
+	bool badnode;
+	xmlChar * lat;
+	xmlChar * lon;
+
+	/* way details */
 	size_t numways;
 	const size_t maxways;
 	int_least64_t * waynodeids;
+
+	/* tag details */
+	const xmlChar * tagprefix; /* will just point to string constants */
+	xmlChar * tagkey;
+	xmlChar * tagvalue;
 }
 parseState;
 
