@@ -64,6 +64,10 @@ static void parseWay(const xmlChar * name, parseState * state, const xmlChar ** 
 static void parseND(const xmlChar * name, parseState * state, const xmlChar ** attrs);
 static void parseTag(const xmlChar * name, parseState * state, const xmlChar ** attrs);
 
+static void printNode(const xmlChar * name, parseState * state);
+static void printWay(const xmlChar * name, parseState * state);
+static void printTag(const xmlChar * name, parseState * state);
+
 /*************/
 /* callbacks */
 /*************/
@@ -137,8 +141,6 @@ void startElement(void * user_data, const xmlChar * name, const xmlChar ** attrs
 
 void endElement(void * user_data, const xmlChar * name) {
 	parseState * state = user_data;
-	size_t i;
-	size_t waysmaxidx = state->numways - 1;
 
 	/* node */
 	if (xmlStrEqual(name, strConstants[NODE])) {
@@ -148,12 +150,8 @@ void endElement(void * user_data, const xmlChar * name) {
 
 	/* way */
 	if (xmlStrEqual(name, strConstants[WAY])) {
- 		if (state->numways > 0) {
-			printf("%s(%" PRIdLEAST64 ", [", name, state->parentid);
-			for (i = 0; i < waysmaxidx; ++i)
-				printf("%" PRIdLEAST64 ", ", (state->waynodeids)[i]);
-			printf("%" PRIdLEAST64 "]).\n", state->waynodeids[waysmaxidx]);
-		}
+ 		if (state->numways > 0)
+			printWay(name, state);
 		state->parent = _OSM_ELEMENT_UNSET_;
 		state->numways = 0;
 		return;
@@ -212,6 +210,9 @@ static void parseNode(const xmlChar * name, parseState * state, const xmlChar **
 	const xmlChar ** values = xmlMalloc(numkeys * sizeof(xmlChar *));
 
 	size_t foundkeys = findAttributes(numkeys, keys, attrs, values);
+
+	/**/
+	/**/
 
 	/* print the tuple if it's been found */
 	if (foundkeys == numkeys) {
@@ -325,3 +326,21 @@ static void parseTag(const xmlChar * name __attribute__((unused)), parseState * 
 	}
 	xmlFree(values);
 }
+
+
+
+/************/
+/* PRINTING */
+/************/
+
+static void printWay(const xmlChar * name, parseState * state) {
+	size_t i = 0;
+	size_t waysmaxidx = state->numways - 1;
+	printf("%s(%" PRIdLEAST64 ", [", name, state->parentid);
+	while(i++ < waysmaxidx)	printf("%" PRIdLEAST64 ", ", (state->waynodeids)[i]);
+	printf("%" PRIdLEAST64 "]).\n", state->waynodeids[waysmaxidx]);
+}
+
+static void printNode(const xmlChar * name, parseState * state) {
+	printf("%s(%" PRIdLEAST64 ", %" PRIdLEAST64 ", %" PRIdLEAST64 ").\n", name, state->parentid, state->lat, state->lon);
+}	
