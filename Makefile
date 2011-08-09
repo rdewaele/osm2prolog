@@ -62,4 +62,4 @@ clean:
 valgrind: $(EXECUTABLE)
 	valgrind --leak-check=full ./$(EXECUTABLE) $(OSMXML) > /dev/null
 
-.PHONY: valgrind
+.PHONY: valgrind $(EXECUTABLE)
