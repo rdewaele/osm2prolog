@@ -46,13 +46,12 @@ bool osmIgnoreKey(const xmlChar * keyname) {
 	return
 		xmlStrcmp(keyname, strConstants[CREATEDBY])
 		|| xmlStrcmp(keyname, strConstants[NOTE])
-	;
+		;
 }
 
 
 
 void osm2prolog_init(void) {
-	fprintf(stderr, "DEBUG >>> initializing ... \n");
 	strConstants = xmlMalloc(_OSM_ELEMENT_SIZE_ * sizeof(xmlChar *));
 
 	strConstants[_OSM_ELEMENT_UNSET_] = NULL;
@@ -78,24 +77,20 @@ void osm2prolog_init(void) {
 void osm2prolog_cleanup(void) {
 	osmElement i;
 
-	fprintf(stderr, "DEBUG >>> cleaning up ... \n");
-
-	for (i = 0; i < _OSM_ELEMENT_SIZE_; ++i) {
-		fprintf(stderr, "deleting %u (%d -> %d)\n", i, _OSM_ELEMENT_UNSET_, _OSM_ELEMENT_SIZE_);
+	for (i = 0; i < _OSM_ELEMENT_SIZE_; ++i)
 		xmlFree(strConstants[i]);
-	}
 
 	xmlFree(strConstants);
 }
 
 parseState * osm2prolog_createParseState (void) {
-        /* "way is an ordered interconnection of at least 2 and at most 2,000[1] (API v0.6) nodes"
-         * from: http://wiki.openstreetmap.org/wiki/Ways
-         * TODO: dynamically manage memory for ways */
-        const size_t maxways = 2000;
-        parseState * state = xmlMalloc(sizeof(parseState));
+	/* "way is an ordered interconnection of at least 2 and at most 2,000[1] (API v0.6) nodes"
+	 * from: http://wiki.openstreetmap.org/wiki/Ways
+	 * TODO: dynamically manage memory for ways */
+	const size_t maxways = 2000;
+	parseState * state = xmlMalloc(sizeof(parseState));
 	parseState src_state = {_OSM_ELEMENT_UNSET_, 0, 0, maxways, xmlMalloc(maxways * sizeof(int_least64_t))};
-        memcpy(state, &src_state, sizeof(src_state));
+	memcpy(state, &src_state, sizeof(src_state));
 	return state;
 }
 

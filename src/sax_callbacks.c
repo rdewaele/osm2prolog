@@ -27,54 +27,30 @@
 #include <libxml/xmlstring.h>
 
 xmlSAXHandler osm2prolog = {
-	/*  internalSubsetSAXFunc internalSubset;*/
-	NULL,
-	/*  isStandaloneSAXFunc isStandalone;*/
-	NULL,
-	/*  hasInternalSubsetSAXFunc hasInternalSubset;*/
-	NULL,
-	/*  hasExternalSubsetSAXFunc hasExternalSubset;*/
-	NULL,
-	/*  resolveEntitySAXFunc resolveEntity;*/
-	NULL,
-	/*  getEntitySAXFunc getEntity;*/
-	NULL,
-	/*  entityDeclSAXFunc entityDecl;*/
-	NULL,
-	/*  notationDeclSAXFunc notationDecl;*/
-	NULL,
-	/*  attributeDeclSAXFunc attributeDecl;*/
-	NULL,
-	/*  elementDeclSAXFunc elementDecl;*/
-	NULL,
-	/*  unparsedEntityDeclSAXFunc unparsedEntityDecl;*/
-	NULL,
-	/*  setDocumentLocatorSAXFunc setDocumentLocator;*/
-	NULL,
-	/*  startDocumentSAXFunc startDocument;*/
-	startDocument,
-	/*  endDocumentSAXFunc endDocument;*/
-	endDocument,
-	/*  startElementSAXFunc startElement;*/
-	startElement,
-	/*  endElementSAXFunc endElement;*/
-	endElement,
-	/*  referenceSAXFunc reference;*/
-	NULL,
-	/*  charactersSAXFunc characters;*/
-	NULL,
-	/*  ignorableWhitespaceSAXFunc ignorableWhitespace;*/
-	NULL,
-	/*  processingInstructionSAXFunc processingInstruction;*/
-	NULL,
-	/*  commentSAXFunc comment;*/
-	NULL,
-	/*  warningSAXFunc warning;*/
-	NULL,
-	/*  errorSAXFunc error;*/
-	NULL,
-	/*  fatalErrorSAXFunc fatalError;*/
-	NULL
+	NULL, /* internalSubsetSAXFunc internalSubset */
+	NULL, /* isStandaloneSAXFunc isStandalone */
+	NULL, /* hasInternalSubsetSAXFunc hasInternalSubset */
+	NULL, /* hasExternalSubsetSAXFunc hasExternalSubset */
+	NULL, /* resolveEntitySAXFunc resolveEntity */
+	NULL, /* getEntitySAXFunc getEntity */
+	NULL, /* entityDeclSAXFunc entityDecl */
+	NULL, /* notationDeclSAXFunc notationDecl */
+	NULL, /* attributeDeclSAXFunc attributeDecl */
+	NULL, /* elementDeclSAXFunc elementDecl */
+	NULL, /* unparsedEntityDeclSAXFunc unparsedEntityDecl */
+	NULL, /* setDocumentLocatorSAXFunc setDocumentLocator */
+	startDocument, /* startDocumentSAXFunc startDocument */
+	endDocument, /* endDocumentSAXFunc endDocument */
+	startElement, /* startElementSAXFunc startElement */
+	endElement, /* endElementSAXFunc endElement */
+	NULL, /* referenceSAXFunc reference */
+	NULL, /* charactersSAXFunc characters */
+	NULL, /* ignorableWhitespaceSAXFunc ignorableWhitespace */
+	NULL, /* processingInstructionSAXFunc processingInstruction */
+	NULL, /* commentSAXFunc comment */
+	NULL, /* warningSAXFunc warning */
+	NULL, /* errorSAXFunc error */
+	NULL, /* fatalErrorSAXFunc fatalError */
 };
 
 /************************/
