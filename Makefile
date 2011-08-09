@@ -24,6 +24,9 @@
 # final executable name
 EXECUTABLE=osm2prolog.bin
 
+# OpenStreetMap XML export file, for testing
+OSMXML=leuven-nov-2010.xml
+
 
 
 #
@@ -43,6 +46,9 @@ SOURCE_TARGET=osm2prolog
 #
 
 # default rule: build main executable
+all: $(EXECUTABLE)
+
+# build main executable
 $(EXECUTABLE):
 	$(MAKE) -C $(SOURCE) $(SOURCE_TARGET)
 	cp $(SOURCE)/$(SOURCE_TARGET) $(EXECUTABLE)
@@ -50,4 +56,10 @@ $(EXECUTABLE):
 # clean: clean source dir, then self
 clean:
 	$(MAKE) -C $(SOURCE) $@
-	rm $(EXECUTABLE)
+	rm -f $(EXECUTABLE)
+
+# run osm2prolog through valgrind using the supplied osm xml sample
+valgrind: $(EXECUTABLE)
+	valgrind --leak-check=full ./$(EXECUTABLE) $(OSMXML) > /dev/null
+
+.PHONY: valgrind

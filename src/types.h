@@ -16,28 +16,15 @@
  * along with osm2prolog.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "sax_callbacks.h"
-#include "types.h"
-#include "util.h"
+#pragma once
 
-#include <assert.h>
+#include <stdlib.h>
 
-/* main */
-int main(int argc, char * argv[]) {
-	int error;
-
-	parseState * state = osm2prolog_createParseState();
-
-	fprintf(stderr, "osm2prolog v0.2 - usage and license: see the 'README' and 'COPYING' files.\n");
-
-	assert(argc == 2);
-
-	error = xmlSAXUserParseFile(&osm2prolog, state, argv[1]);
-
-	osm2prolog_freeParseState(state);
-
-	if (error < 0)
-		return EXIT_FAILURE;
-	else
-		return EXIT_SUCCESS;
+typedef
+enum osmElement {
+	_OSM_ELEMENT_UNSET_ = 0,
+	OSM, NODE, WAY, TAG, ND, RELATION, MEMBER, ID, LAT, LON, REF, K, V, VERSION,
+	CREATEDBY, NOTE,
+	_OSM_ELEMENT_SIZE_
 }
+osmElement;

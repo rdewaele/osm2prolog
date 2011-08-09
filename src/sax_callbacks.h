@@ -16,28 +16,8 @@
  * along with osm2prolog.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "sax_callbacks.h"
-#include "types.h"
-#include "util.h"
+#pragma once
 
-#include <assert.h>
+#include <libxml/parser.h>
 
-/* main */
-int main(int argc, char * argv[]) {
-	int error;
-
-	parseState * state = osm2prolog_createParseState();
-
-	fprintf(stderr, "osm2prolog v0.2 - usage and license: see the 'README' and 'COPYING' files.\n");
-
-	assert(argc == 2);
-
-	error = xmlSAXUserParseFile(&osm2prolog, state, argv[1]);
-
-	osm2prolog_freeParseState(state);
-
-	if (error < 0)
-		return EXIT_FAILURE;
-	else
-		return EXIT_SUCCESS;
-}
+extern xmlSAXHandler osm2prolog;

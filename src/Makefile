@@ -27,12 +27,12 @@ CWARNINGS=-W -Wall -Wextra -Wundef -Wendif-labels -Wshadow\
 					-Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes\
 					-Wnested-externs -Winline -Wdisabled-optimization\
 					-Wno-missing-field-initializers
-CFLAGS:=-O3 -pipe -pedantic -std=c99 $(CWARNINGS)\
+CFLAGS:=-O0 -g -pipe -pedantic -std=c99 $(CWARNINGS)\
 	      $(shell xml2-config --cflags) $(CFLAGS)\
 				$(shell pkg-config --cflags glib-2.0)
 LDLIBS:=$(shell xml2-config --libs) $(LDFLIBS)\
 	      $(shell pkg-config --libs glib-2.0)
-SOURCES=main.c
+SOURCES=main.c sax_callbacks.c util.c
 OBJECTS=$(SOURCES:.c=.o)
 MAIN=main
 EXECUTABLE=osm2prolog
