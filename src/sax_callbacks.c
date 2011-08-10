@@ -71,6 +71,15 @@ static void printTag(const xmlChar * name, parseState * state);
 static bool osm_strtoimax(const xmlChar * str, int_least64_t * num);
 static bool validDouble(const xmlChar * str);
 
+/* TODO in later versions
+	this parser currently only supports 1 level of element nesting
+		supported parents:
+			node
+			way
+		ignored parents:
+			relation
+*/
+
 /*************/
 /* callbacks */
 /*************/
@@ -85,20 +94,45 @@ void startDocument(void * user_data) {
 	state->badnode = true;
 	state->parentid = 0;
 	state->numways = 0;
+	state->badtag = true;
 	state->tagprefix = NULL;
 	state->tagkey = NULL;
 	state->tagvalue = NULL;
 
+	/* if printmode is not set to something we support, print warning and default to PL*/
+	state->printMode =
+		((state->printMode != PL) && (state->printMode != TABLE))
+		? (void)fprintf(stderr, "Warning: unrecognised print mode, defaulting to PL (prolog terms)\n"), PL
+		: state->printMode;
+
+	/* if we print to files (currently only tables), check filepointers and set defaults */
+	if (TABLE == state->printMode) {
+		state->node_file    = (state->node_file    ? state->node_file    : fopen("table_node", "w"));
+		state->way_file     = (state->way_file     ? state->way_file     : fopen("table_way", "w"));
+		state->nodetag_file = (state->nodetag_file ? state->nodetag_file : fopen("table_nodetag", "w"));
+		state->waytag_file  = (state->waytag_file  ? state->waytag_file  : fopen("table_waytag", "w"));
+	}
+
 	osm2prolog_init();
 
 	/* prevent swipl from complaining about the order of clauses */
-	printf(":-style_check(-discontiguous).\n");
+	if (PL == state->printMode)
+		printf(":-style_check(-discontiguous).\n");
 
 	fprintf(stderr, "Start Document\n");
 }
 
-void endDocument(void * user_data __attribute__((unused))) {
+void endDocument(void * user_data) {
+	parseState * state = user_data;
+
 	fprintf(stderr, "End Document\n");
+
+	if (TABLE == state->printMode) {
+		fclose(state->node_file);
+		fclose(state->way_file);
+		fclose(state->nodetag_file);
+		fclose(state->waytag_file);
+	}
 
 	osm2prolog_cleanup();
 }
@@ -138,6 +172,7 @@ void startElement(void * user_data, const xmlChar * name, const xmlChar ** attrs
 
 	/* relation */
 	if (xmlStrEqual(name, strConstants[RELATION]))
+		state->parent = RELATION;
 		return;
 	/* member */
 	if (xmlStrEqual(name, strConstants[MEMBER]))
@@ -148,6 +183,7 @@ void startElement(void * user_data, const xmlChar * name, const xmlChar ** attrs
 	fprintf(stderr, "unknown element: %s\n", name);
 }
 
+/* TODO make "parse cleanup" functions that will be called here */
 void endElement(void * user_data, const xmlChar * name) {
 	parseState * state = user_data;
 
@@ -161,7 +197,7 @@ void endElement(void * user_data, const xmlChar * name) {
 
 	/* way */
 	if (xmlStrEqual(name, strConstants[WAY])) {
- 		if (0 == state->numways)
+		if (0 == state->numways)
 			fprintf(stderr, "Warning: way element doesn't contain nodes. Ignoring way.");
 		else
 			printWay(name, state);
@@ -174,15 +210,21 @@ void endElement(void * user_data, const xmlChar * name) {
 	/* nd - is only handled as a child of way*/
 
 	/* tag */	
-	if (xmlStrEqual(name, strConstants[TAG])) {
-		if (state->tagkey && !osmIgnoreKey(state->tagkey))
-			printTag(name, state);
-
+	if (xmlStrEqual(name, strConstants[TAG]) && !state->badtag) {
+		printTag(name, state);
 		xmlFree(state->tagkey);
-		state->tagkey = NULL;
 		xmlFree(state->tagvalue);
-		state->tagvalue = NULL;
 	}
+
+	/* --- ignored (deliberately and explicitely) --- */
+
+	/* relation */
+	if (xmlStrEqual(name, strConstants[RELATION]))
+		state->parent = _OSM_ELEMENT_UNSET_;
+		return;
+	/* member */
+	if (xmlStrEqual(name, strConstants[MEMBER]))
+		return;
 }
 
 
@@ -241,17 +283,17 @@ static void parseNode(const xmlChar * name __attribute__((unused)), parseState *
 		fprintf(stderr, "Warning: Not all required keys for node record found. Ignoring node record.\n");
 	else {
 		if (!(
-				osm_strtoimax(values[0], &(state->parentid))
-				&& validDouble(values[1])
-				&& validDouble(values[2])
-				))
+					osm_strtoimax(values[0], &(state->parentid))
+					&& validDouble(values[1])
+					&& validDouble(values[2])
+		     ))
 			fprintf(stderr, "Warning: Failed to convert node ID, LAT or LON from string to number. Ignoring node record.\n");
 		else
 			state->parent = NODE;
-			state->lat = xmlStrdup(values[1]);
-			state->lon = xmlStrdup(values[2]);
-			state->badnode = false;
-		}
+		state->lat = xmlStrdup(values[1]);
+		state->lon = xmlStrdup(values[2]);
+		state->badnode = false;
+	}
 
 	xmlFree(values);
 }
@@ -304,9 +346,8 @@ static void parseTag(const xmlChar * name __attribute__((unused)), parseState * 
 
 	size_t foundkeys = findAttributes(numkeys, keys, attrs, values);
 
+	state->badtag = true;
 	state->tagprefix = NULL;
-	state->tagkey = NULL;
-	state->tagvalue = NULL;
 
 	/* known tag prefixes */
 	if (NODE == state->parent)
@@ -314,12 +355,22 @@ static void parseTag(const xmlChar * name __attribute__((unused)), parseState * 
 	if (WAY == state->parent)
 		state->tagprefix = strConstants[WAY];
 
-	if (foundkeys != numkeys && state->tagprefix)
-		fprintf(stderr,	"Warning: Not all required keys for record <%s> found. Ignoring %s record in %s record.\n",
-				name, name, state->tagprefix);
-	else
-		state->tagkey = xmlStrdup(values[0]);
-		state->tagvalue = xmlStrdup(values[1]);
+	if (!state->tagprefix) {
+		/* IGNORED TAG - do absolutely nothing (but still free(values) :-)) */
+	}
+	else {
+		if (foundkeys != numkeys)
+			fprintf(stderr,	"Warning: Not all required keys for record <%s> found. Ignoring %s record in %s record.\n",
+					name, name, state->tagprefix);
+		else {
+			/* if NOT IGNORED KEY then print it, else do absolutely nothing (but still still free(values) :-)) */
+			if (!osmIgnoreKey(values[0])) {
+				state->badtag = false;
+				state->tagkey = xmlStrdup(values[0]);
+				state->tagvalue = xmlStrdup(values[1]);
+			}
+		}
+	}
 
 	xmlFree(values);
 }
@@ -329,34 +380,77 @@ static void parseTag(const xmlChar * name __attribute__((unused)), parseState * 
 /************/
 /* PRINTING */
 /************/
+/* TODO open files once and keep them open through one parse */
 
 static void printWay(const xmlChar * name, parseState * state) {
 	size_t i = 0;
 	size_t waysmaxidx = state->numways - 1;
-	printf("%s(%" PRIdLEAST64 ", [", name, state->parentid);
-	while(i < waysmaxidx) printf("%" PRIdLEAST64 ", ", (state->waynodeids)[i++]);
-	printf("%" PRIdLEAST64 "]).\n", state->waynodeids[waysmaxidx]);
+
+	switch (state->printMode) {
+		case TABLE:
+			/* print: "wayid <tab> nodeid" */
+			while (i < state->numways)
+				fprintf(state->way_file, "%" PRIdLEAST64 "\t%" PRIdLEAST64 "\n", state->parentid, (state->waynodeids)[i++]);
+			break;
+		case PL:
+		default:
+			/* print: "name(wayid, [list-of-nodeid])." */
+			printf("%s(%" PRIdLEAST64 ", [", name, state->parentid);
+			while (i < waysmaxidx)
+				printf("%" PRIdLEAST64 ", ", (state->waynodeids)[i++]);
+			printf("%" PRIdLEAST64 "]).\n", state->waynodeids[waysmaxidx]);
+			break;
+	}
 }
 
 static void printNode(const xmlChar * name, parseState * state) {
-	printf("%s(%" PRIdLEAST64 ", %s, %s).\n", name, state->parentid, state->lat, state->lon);
+	switch (state->printMode) {
+		case TABLE:
+			/* print: "nodeid <tab> lat <tab> lon" */
+			fprintf(state->node_file, "%" PRIdLEAST64 "\t%s\t%s\n", state->parentid, state->lat, state->lon);
+			break;
+		case PL:
+		default:
+			/* print: "name(nodeid, lat, lon)." */
+			printf("%s(%" PRIdLEAST64 ", %s, %s).\n", name, state->parentid, state->lat, state->lon);
+	}
 }	
 
+/* TODO unify tag prefix printing, and tag prefix file naming, or somesuch */
 static void printTag(const xmlChar * name, parseState * state) {
-	xmlChar * key = NULL;
-	xmlChar * value = NULL;
+	FILE * tagfile = NULL;
+	/* prolog_filter_str returns a pointer to an alloced copy, TODO rename prolog_filter_str */
+	xmlChar * key = prolog_filter_str(state->tagkey);
+	xmlChar * value = prolog_filter_str(state->tagvalue);
 
-	key = prolog_filter_str(state->tagkey);
-	value = prolog_filter_str(state->tagvalue);
+	switch (state->printMode) {
+		case TABLE:
+			/* first select tagfile */
+			switch (state->parent) {
+				case NODE:
+					tagfile = state->nodetag_file;
+					break;
+				case WAY:
+					tagfile = state->waytag_file;
+					break;
+				case _OSM_ELEMENT_UNSET_:
+					fprintf(stderr, "INTERNAL ERROR: trying to print tag element when parent element is not set. Aborting.\n");
+					fprintf(stderr, "key and value were: '%s' and '%s'\n", key, value);
+					exit(EXIT_FAILURE);
+					break;
+				default:
+					fprintf(stderr, "ABORT: No table file for current tag element (tag inside %s element).\n", strConstants[state->parent]);
+					exit(EXIT_FAILURE);
+			}
+			/* print "parentid <tab> key <tab> value", - note that no keys or values will contain tabs as they are filtered */
+			fprintf(tagfile, "%" PRIdLEAST64 "\t%s\t%s\n", state->parentid, key, value);
+			break;
+		case PL:
+		default:
+			/* print: tagprefix_name(parentid, key, value). */
+			printf("%s_%s(%" PRIdLEAST64 ", '%s', '%s').\n", state->tagprefix, name, state->parentid, key, value);
+	}
 
-	printf("%s_%s(%" PRIdLEAST64 ", '%s', '%s').\n",
-		state->tagprefix,
-		name,
-		state->parentid,
-		key ? key : state->tagkey,
-		value ? value : state->tagvalue
-	);
-	/* free(NULL) || free(<valid pointer>) */
 	xmlFree(key);
 	xmlFree(value);
 }

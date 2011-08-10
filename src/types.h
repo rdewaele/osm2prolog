@@ -30,10 +30,17 @@ enum osmElement {
 osmElement;
 
 typedef
-enum OsmPrintMode {
+enum osmPrintMode {
 	_OSM_PRINT_MODE_UNSET_ = 0,
 	PL,
 	TABLE,
 	_OSM_PRINT_MODE_SIZE_
 }
 osmPrintMode;
+
+typedef
+struct osm_config {
+	osmPrintMode printMode;
+	char * tableprefix;
+}
+osm_config;

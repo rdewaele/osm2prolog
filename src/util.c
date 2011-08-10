@@ -32,12 +32,14 @@ xmlChar * prolog_filter_str(const xmlChar * str) {
 	xmlChar * retval = NULL;
 	xmlChar * dest = NULL;
 
-	/* this is expected to be a rare case, so we amortize performance by paying less for strings
-	 * that don't include newlines, and a bit more for strings who do */
-	if (!xmlStrchr(str, '\n')) {
-		retval = dest = xmlMalloc(xmlStrlen(str) + 1);
-		while('\0' != (*dest++ = (isspace(*str++) ? ' ' : *str))); /* sequence point after '?' */
+	retval = dest = xmlMalloc(xmlStrlen(str) + 1);
+	/* sequence point after '?' which is a sub expression, so I don't think it's
+	 * defined behaviour to post increment dest in line. */
+	while('\0' != (*dest = (isspace(*str) ? ' ' : *str))) {
+		++dest;
+		++str;
 	}
+
 	return retval;
 }
 
@@ -45,10 +47,10 @@ xmlChar * prolog_filter_str(const xmlChar * str) {
 
 /* TODO don't hardcode the tags being ignored */
 bool osmIgnoreKey(const xmlChar * keyname) {
-	return keyname && (
-		xmlStrcmp(keyname, strConstants[CREATEDBY])
-		|| xmlStrcmp(keyname, strConstants[NOTE])
-		);
+	return (!keyname)
+		|| 0 == xmlStrcmp(keyname, strConstants[CREATEDBY])
+		|| 0 == xmlStrcmp(keyname, strConstants[NOTE])
+		;
 }
 
 
@@ -100,9 +102,15 @@ parseState * osm2prolog_createParseState (void) {
 		0,
 		maxways,
 		xmlMalloc(maxways * sizeof(int_least64_t)),
+		true,
 		NULL,
 		NULL,
 		NULL,
+		_OSM_PRINT_MODE_UNSET_,
+		NULL,
+		NULL,
+		NULL,
+		NULL
 	};
 	memcpy(state, &src_state, sizeof(src_state));
 	return state;

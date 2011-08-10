@@ -22,11 +22,13 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <libxml/xmlstring.h>
 
 /* represents state while parsing OSM XML data */
 typedef
 struct parseState {
+	/* general */
 	osmElement parent;	
 	int_least64_t parentid;
 
@@ -41,9 +43,17 @@ struct parseState {
 	int_least64_t * waynodeids;
 
 	/* tag details */
+	bool badtag;
 	const xmlChar * tagprefix; /* will just point to string constants */
 	xmlChar * tagkey;
 	xmlChar * tagvalue;
+
+	/* printing details */
+	osmPrintMode printMode;
+	FILE * node_file;
+	FILE * way_file;
+	FILE * nodetag_file;
+	FILE * waytag_file;
 }
 parseState;
 
