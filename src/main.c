@@ -44,6 +44,11 @@ int main(int argc, char * argv[]) {
 
 	state->printMode = PL;	
 	if (argc == 4) {
+		fprintf(stderr, "Note: %s produces completely unsorted tables. "
+				"If you would like to have the table sorted according to some column, "
+				"something amongst these lines might prove to be useful:\n"
+				"\t$(which sort) -s -t\"$($(which echo) -e '\t')\" -k1,1\n",
+				argv[0]);
 		setPrintConfig(argv, state);
 		xmlfilename = argv[3];
 	}
