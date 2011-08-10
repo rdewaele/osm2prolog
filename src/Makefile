@@ -23,15 +23,16 @@
 # with the same behaviour for the particular command line switches.)
 
 CWARNINGS=-W -Wall -Wextra -Wundef -Wendif-labels -Wshadow\
-					-Wpointer-arith -Wbad-function-cast -Wcast-align\
-					-Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes\
-					-Wnested-externs -Winline -Wdisabled-optimization\
-					-Wno-missing-field-initializers
+				-Wpointer-arith -Wbad-function-cast -Wcast-align\
+				-Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes\
+				-Wnested-externs -Winline -Wdisabled-optimization\
+				-Wno-missing-field-initializers
 CFLAGS:=-O0 -g -pipe -pedantic -std=c99 $(CWARNINGS)\
-	      $(shell xml2-config --cflags) $(CFLAGS)\
-				$(shell pkg-config --cflags glib-2.0)
+				$(shell xml2-config --cflags) $(CFLAGS)\
+				$(shell pkg-config --cflags glib-2.0)\
+				$(CFLAGS)
 LDLIBS:=$(shell xml2-config --libs) $(LDFLIBS)\
-	      $(shell pkg-config --libs glib-2.0)
+				$(shell pkg-config --libs glib-2.0)
 SOURCES=main.c sax_callbacks.c util.c
 OBJECTS=$(SOURCES:.c=.o)
 MAIN=main
