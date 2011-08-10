@@ -24,6 +24,8 @@
 #include <errno.h>
 #include <string.h>
 
+/* TODO decent option parsing (libpopt or so) */
+
 void setPrintConfig(char * argv[], parseState * state);
 char * strconcat(const char * prefix, const char * infix, const char * suffix);
 FILE * openPrintFile(const char * prefix, const char * suffix);
@@ -31,7 +33,7 @@ FILE * openPrintFile(const char * prefix, const char * suffix);
 /* main */
 int main(int argc, char * argv[]) {
 	int error;
-	char * xmlfilename;
+	char * xmlfilename = NULL;
 
 	parseState * state = osm2prolog_createParseState();
 
