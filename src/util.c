@@ -27,7 +27,15 @@
 
 xmlChar ** strConstants;
 
-/* TODO check for other nasty things in values like newlines */
+static bool prolog_is_nasty_char(const xmlChar c);
+
+static inline bool prolog_is_nasty_char(const xmlChar c) {
+	return isspace(c)
+		|| '\'' == c;
+}
+
+/* TODO check for other nasty things in values like newlines and single quotes */
+/* TODO we could also escape single quotes instead of overwriting them, but it would matter what format we print to */
 xmlChar * prolog_filter_str(const xmlChar * str) {
 	xmlChar * retval = NULL;
 	xmlChar * dest = NULL;
@@ -35,7 +43,7 @@ xmlChar * prolog_filter_str(const xmlChar * str) {
 	retval = dest = xmlMalloc(xmlStrlen(str) + 1);
 	/* sequence point after '?' which is a sub expression, so I don't think it's
 	 * defined behaviour to post increment dest in line. */
-	while('\0' != (*dest = (isspace(*str) ? ' ' : *str))) {
+	while('\0' != (*dest = (prolog_is_nasty_char(*str) ? ' ' : *str))) {
 		++dest;
 		++str;
 	}
