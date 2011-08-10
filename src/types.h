@@ -28,3 +28,12 @@ enum osmElement {
 	_OSM_ELEMENT_SIZE_
 }
 osmElement;
+
+typedef
+enum OsmPrintMode {
+	_OSM_PRINT_MODE_UNSET_ = 0,
+	PL,
+	TABLE,
+	_OSM_PRINT_MODE_SIZE_
+}
+osmPrintMode;
