@@ -47,7 +47,7 @@ int main(int argc, char * argv[]) {
 		fprintf(stderr, "Note: %s produces completely unsorted tables. "
 				"If you would like to have the table sorted according to some column, "
 				"something amongst these lines might prove to be useful:\n"
-				"\t$(which sort) -s -t\"$($(which echo) -e '\t')\" -k1,1\n",
+				"\tsort -s -t"$(echo -e '\t')" -k1n,1\n",
 				argv[0]);
 		setPrintConfig(argv, state);
 		xmlfilename = argv[3];
