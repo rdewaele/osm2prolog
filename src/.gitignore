@@ -1,0 +1,6 @@
+# ignore compiled source files
+*.o
+
+# ignore both executables
+main
+osm2prolog
