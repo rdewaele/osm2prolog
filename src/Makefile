@@ -46,4 +46,4 @@ $(EXECUTABLE): $(MAIN)
 $(MAIN): $(OBJECTS)
 
 clean:
-	@rm -f $(OBJECTS) $(EXECUTABLE) $(MAIN)
+	rm -f $(OBJECTS) $(EXECUTABLE) $(MAIN)
